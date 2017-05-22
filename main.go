@@ -2,18 +2,19 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/alexflint/go-arg"
 )
 
 type progArgs struct {
-	FixedFee float64 `arg:"-f,help:fixed fee per transaction (currency)"`
-	PercentFee float64 `arg:"-p,help:fee per transation (percent)"`
-	TimedFee float64 `arg:"-t,help:fee per year (percent)"`
-	ToInvest float64 `arg:"-i,help:amount (in currency) to invest or own at the end"`
-	RecentYears int `arg:"-r,help:specify starting date by subtracting this amout of years from the most recent CSV data point"`
-	CSV string `arg:"positional,required,help:CSV file"`
+	FixedFee    float64 `arg:"-f,help:fixed fee per transaction (currency)"`
+	PercentFee  float64 `arg:"-p,help:fee per transation (percent)"`
+	TimedFee    float64 `arg:"-t,help:fee per year (percent)"`
+	ToInvest    float64 `arg:"-i,help:amount (in currency) to invest or own at the end"`
+	RecentYears int     `arg:"-r,help:specify starting date by subtracting this amout of years from the most recent CSV data point"`
+	CSV         string  `arg:"positional,required,help:CSV file"`
 }
 
 func (a *progArgs) Description() string {
@@ -42,10 +43,6 @@ func main() {
 	fmt.Printf("oldest %s\n", oldest)
 	fmt.Printf("newest %s\n", newest)
 
-	xat, _ := time.Parse("2006-01-02", "2004-03-05"/**/)
-	xp, err := points.PriceAt(xat, 12 * time.Hour )
-	fmt.Printf("xprice at %s %f, err %s\n", xat, xp, err)
-
 	// overwrite oldest point date by subtracting from newest
 	if args.RecentYears > 0 {
 		oldest = newest.AddDate(-args.RecentYears, 0, 0)
@@ -72,9 +69,7 @@ func main() {
 		48 * 30 * 24 * time.Hour,
 	}
 
-
-
-	mostRecentPrice, err := points.PriceAt(newest, 24 * time.Hour)
+	mostRecentPrice, err := points.PriceAt(newest, 24*time.Hour)
 	if err != nil {
 		fmt.Printf("cannot get most recent price - %s\n", err.Error())
 		panic(err)
@@ -85,14 +80,13 @@ func main() {
 
 		numSteps := int(completeInterval / interval)
 		toInvestInSingleStep := toInvest / float64(numSteps)
-		intervalFee := float64(interval)/float64(12*30*24*time.Hour)*args.TimedFee/100
+		intervalFee := float64(interval) / float64(12*30*24*time.Hour) * args.TimedFee / 100
 
 		fmt.Printf("INTERVAL %s, %d steps\n", durationString(interval), numSteps)
 
 		// DCA
 		{
-			totalAmount := float64(0)
-			spent := float64(0)
+			var totalAmount, spent float64
 
 			for step := 0; step < numSteps; step++ {
 				price, err := points.PriceAt(oldest.Add(interval*time.Duration(step)), interval/2)
@@ -102,23 +96,27 @@ func main() {
 				}
 
 				totalAmount += toInvestInSingleStep / price
+				spentThisStep := toInvestInSingleStep
+
 				if step > 0 {
-					spent += toInvestInSingleStep + args.FixedFee + args.PercentFee*toInvestInSingleStep + totalAmount*mostRecentPrice*intervalFee
+					spentThisStep += args.FixedFee + args.PercentFee*toInvestInSingleStep + totalAmount*mostRecentPrice*intervalFee
 				} else {
-					spent += toInvestInSingleStep + args.FixedFee + args.PercentFee*toInvestInSingleStep
+					spentThisStep += args.FixedFee + args.PercentFee*toInvestInSingleStep
 				}
+
+				spent += spentThisStep
 			}
 
 			finalInvestVal := totalAmount * mostRecentPrice
 
-			fmt.Printf(" - DCA total stock # %.4f, spent %.4f, value at the end %.4f (%.4f %%) value/spent %.2f\n",
+			fmt.Printf(" - DCA total stock # %.4f, spent %.4f, value at the end %.4f (%.4f %%), value/spent %.2f\n",
 				totalAmount, spent, finalInvestVal, 100.0/toInvest*finalInvestVal, finalInvestVal/spent)
 		}
 
 		// VA
 		{
-			totalAmount := float64(0)
-			spent := float64(0)
+			var totalAmount, spent, highestInvestment, lowestInvestment float64
+			lowestInvestment = math.Pow(10, 300)
 
 			for step := 0; step < numSteps; step++ {
 				price, err := points.PriceAt(oldest.Add(interval*time.Duration(step)), interval)
@@ -129,20 +127,34 @@ func main() {
 
 				currValue := totalAmount * price
 				expectedValue := float64(step+1) * toInvestInSingleStep
-				buySellThisStep := expectedValue - currValue
+				buySellValueThisStep := expectedValue - currValue
+				spentThisStep := buySellValueThisStep
 
-				totalAmount += buySellThisStep / price
+				totalAmount += buySellValueThisStep / price
 				if step > 0 {
-					spent += buySellThisStep + args.FixedFee + args.PercentFee*buySellThisStep + totalAmount*mostRecentPrice*intervalFee
+					spentThisStep += args.FixedFee + args.PercentFee*buySellValueThisStep + totalAmount*mostRecentPrice*intervalFee
 				} else {
-					spent += buySellThisStep + args.FixedFee + args.PercentFee*buySellThisStep
+					spentThisStep += args.FixedFee + args.PercentFee*buySellValueThisStep
+				}
+
+				spent += spentThisStep
+
+				// update min/max
+				if spentThisStep > highestInvestment {
+					highestInvestment = spentThisStep
+				}
+				if spentThisStep < lowestInvestment {
+					lowestInvestment = spentThisStep
 				}
 			}
 
 			finalInvestVal := totalAmount * mostRecentPrice
 
-			fmt.Printf(" - VA total stock # %.4f, spent %.4f, value at the end %.4f (%.4f %%) value/spent %.2f\n",
+			fmt.Printf(" - VA total stock # %.4f, spent %.4f, value at the end %.4f (%.4f %%), value/spent %.2f\n",
 				totalAmount, spent, finalInvestVal, 100.0/toInvest*finalInvestVal, finalInvestVal/spent)
+			fmt.Printf("   Highest single investment %.4f (%.2f %% planned), lowest %.4f (%.2f %% planned)\n",
+				highestInvestment, 100.0/toInvestInSingleStep*highestInvestment,
+				lowestInvestment, 100.0/toInvestInSingleStep*lowestInvestment)
 		}
 
 	}
