@@ -1,9 +1,9 @@
 package main
 
 import (
-	"time"
-	"sort"
 	"fmt"
+	"sort"
+	"time"
 )
 
 // pricePoint is a single price at a specific point in time
@@ -24,9 +24,9 @@ func (pp *pricePoints) ensureSorted() {
 	}
 	pp.sorted = true
 
-    sort.Slice(pp.points, func(i, j int) bool {
-        return pp.points[i].Date.Before(pp.points[j].Date)
-    })
+	sort.Slice(pp.points, func(i, j int) bool {
+		return pp.points[i].Date.Before(pp.points[j].Date)
+	})
 
 }
 
@@ -58,7 +58,7 @@ func (pp *pricePoints) NumPoints() int {
 }
 
 // PriceAt returns item price closest to a specific time.
-// maxDiff specifies the maximum allowable time duration between 
+// maxDiff specifies the maximum allowable time duration between
 // requested time and recorded time.
 func (pp *pricePoints) PriceAt(at time.Time, maxDiff time.Duration) (float64, error) {
 	pp.ensureSorted()
@@ -81,6 +81,6 @@ func (pp *pricePoints) PriceAt(at time.Time, maxDiff time.Duration) (float64, er
 		}
 	}
 
-	return 0, fmt.Errorf("requested point %s is outside of available data range", at)
+	return 0, fmt.Errorf("requested point %s is outside of available data range [%s-%s] or safe toleration of %s",
+		at, pp.Oldest(), pp.Newest(), maxDiff)
 }
-
